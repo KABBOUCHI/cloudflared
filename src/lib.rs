@@ -5,9 +5,11 @@ use std::{
     path::Path,
     process::{Child, Command, Stdio},
     result::Result,
-    sync::{Arc, Mutex},
-    thread::sleep,
-    time::Duration,
+    sync::{
+        mpsc::{channel, Receiver, Sender},
+        Arc, Mutex,
+    },
+    thread,
 };
 
 pub struct Tunnel {
@@ -75,44 +77,55 @@ impl TunnelBuilder {
         let child = Command::new(&executable)
             .args(&self.args)
             .stderr(Stdio::piped())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
             .spawn()
             .map_err(|e| e.to_string())?;
 
         let child = Arc::new(Mutex::new(child));
+        let thread_child = child.clone();
+        let (sender, receiver): (Sender<String>, Receiver<String>) = channel();
 
-        let mut url = String::new();
-
-        {
-            let child = child.clone();
-            let mut child = child.try_lock().unwrap();
+        thread::spawn(move || {
+            let mut child = thread_child.lock().unwrap();
             let mut stderr = child.stderr.take().unwrap();
             let mut reader = BufReader::new(&mut stderr);
+
             loop {
                 let mut buf = String::new();
-
                 match reader.read_line(&mut buf) {
-                    Ok(0) => break, // EOF reached
+                    Ok(0) => {
+                        break;
+                    }
                     Ok(_) => {
                         let line = buf.to_string();
 
-                        let regext_url = Regex::new(r"\|\s+(https?:\/\/[^\s]+)")
+                        let reg_url = Regex::new(r"\|\s+(https?:\/\/[^\s]+)")
                             .unwrap()
                             .captures(&line)
                             .map(|c| c.get(1).unwrap().as_str().to_string());
 
-                        if let Some(regext_url) = regext_url {
-                            url = regext_url;
+                        if let Some(reg_url) = reg_url {
+                            if sender.send(reg_url).is_err() {
+                                println!("Failed to send URL over channel");
+                            }
                             break;
                         }
                     }
-                    Err(e) => return Err(format!("IO Error: {}", e)),
+                    Err(_) => {
+                        break;
+                    }
                 }
-
-                sleep(Duration::from_millis(300));
             }
+            child.wait().unwrap();
+        });
 
-            sleep(Duration::from_millis(300));
-        }
+        let url = match receiver.recv() {
+            Ok(url) => url,
+            Err(_) => {
+                return Err("Failed to receive URL from channel".to_string());
+            }
+        };
 
         if !url.is_empty() {
             return Ok(Tunnel {
@@ -122,7 +135,7 @@ impl TunnelBuilder {
             });
         }
 
-        Err("Error".to_string())
+        Err("Failed to get URL".to_string())
     }
 }
 
