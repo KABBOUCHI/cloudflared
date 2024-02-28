@@ -74,8 +74,6 @@ impl TunnelBuilder {
 
         let child = Command::new(&executable)
             .args(&self.args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| e.to_string())?;
@@ -112,6 +110,8 @@ impl TunnelBuilder {
 
                 sleep(Duration::from_millis(300));
             }
+
+            sleep(Duration::from_millis(300));
         }
 
         if !url.is_empty() {

@@ -4,11 +4,11 @@ use cloudflared::Tunnel;
 
 fn main() {
     let tunnel = Tunnel::builder()
-        .url("http://localhost:8080")
+        .url("http://localhost:8000")
         .build()
         .unwrap();
 
     println!("URL: {}", tunnel.url());
 
-    sleep(Duration::from_secs(15));
+    sleep(Duration::from_secs(30));
 }
